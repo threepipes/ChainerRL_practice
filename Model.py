@@ -30,7 +30,8 @@ class Cource:
         self.action_space = spaces.Discrete(self.ACTIONS)
 
     def reset(self):
-        self.car = Car(0, 5, math.pi/2)
+        car_dir = np.random.rand() * math.pi*2 - math.pi
+        self.car = Car(0, 5, car_dir)
         self.turn = 0
         return self.car.observe()
 
@@ -44,9 +45,6 @@ class Cource:
         reward = 0
         if dist <= self.FORCE_DIST:
             self.car.force_move(self.FORCE_DIST - dist)
-            # reward -= 0.5
-        # if dist > self.FORCE_DIST*3:
-        #     reward -= 0.5
         done = self.turn >= 2000
         reward += angle(self.car.get_vec(), pre_vec)
         if reward < 0:
@@ -79,11 +77,7 @@ class Car:
         self.dir = _dir
 
     def observe(self):
-        # dist = min(1, self._dist()/50)
-        # angle = (self._angle() + math.pi) / (math.pi*2)
-        dist = self._dist()
-        angle = self._angle()
-        return np.array([dist, angle], dtype=np.float32)
+        return np.array([self._dist(), self._angle()], dtype=np.float32)
 
     def _dist(self):
         return math.sqrt(self.x**2 + self.y**2)
@@ -122,12 +116,7 @@ class Car:
         return '(%f, %f: %f)' % (self.x, self.y, self.dir)
 
 
-if __name__ == '__main__':
-    env = Cource()
-    env.render()
-
-    obs_size = env.OBS_SIZE
-    n_actions = env.ACTIONS
+def make_agent(env, obs_size, n_actions):
     n_hidden_channels = 50
     n_hidden_layers = 2
     q_func = chainerrl.q_functions.FCStateQFunctionWithDiscreteAction(
@@ -150,76 +139,84 @@ if __name__ == '__main__':
         replay_start_size=500, update_frequency=1,
         target_update_frequency=100
     )
+    return agent
 
-    agent_file = 'agent_not_normalized'
-    # agent.load(agent_file)
+
+def train(env, agent):
+    n_episodes = 50
+    max_episode_len = 200
+    log = []
+    for i in range(1, n_episodes + 1):
+        obs = env.reset()
+        reward = 0
+        done = False
+        R = 0
+        t = 0
+        while not done and t < max_episode_len:
+            action = agent.act_and_train(obs, reward)
+            obs, reward, done, info = env.step(action)
+            R += reward
+            t += 1
+            log.append(
+                "acc=%d handle=%d car=%s rew=%f obs=%s" %
+                (action&1, action&6, info, reward, str(obs))
+            )
+        if i % 10 == 0:
+            print(
+                'episode: ', i,
+                'R:', R,
+                'obs:', obs,
+                'statistics:', agent.get_statistics()
+            )
+            env.render()
+        agent.stop_episode_and_train(obs, reward, done)
+
+    print('Finished')
+    return log
+
+
+def play(env, agent):
+    best_episode = []
+    max_R = 0
+    for i in range(10):
+        obs = env.reset()
+        done = False
+        R = 0
+        t = 0
+        pos_tmp = []
+        while not done and t < 200:
+            # env.render()
+            action = agent.act(obs)
+            obs, r, done, _ = env.step(action)
+            R += r
+            t += 1
+            pos_tmp.append(env.car.get_vec())
+        print('test episode:', i, 'R:', R)
+        agent.stop_episode()
+
+        if R > max_R:
+            max_R = R
+            best_episode = pos_tmp
+
+    # play best episode
+    import Canvas
+    Canvas.draw(best_episode)
+    print('Finish demo')
+
+
+if __name__ == '__main__':
+    env = Cource()
+    env.render()
+
+    obs_size = env.OBS_SIZE
+    n_actions = env.ACTIONS
+    agent = make_agent(env, obs_size, n_actions)
+
+    save_path = 'agent/circle'
+    # agent.load(save_path)
 
     # training
-    n_episodes = 200
-    max_episode_len = 200
-    # import pdb; pdb.set_trace()
-    hist = []
-    max_reward = 0
-    max_idx = 0
-    sum_reward = 0
-    pos_log = []
-    rew_log = []
-    try:
-        for i in range(1, n_episodes + 1):
-            obs = env.reset()
-            reward = 0
-            done = False
-            R = 0
-            t = 0
-            log = []
-            pos_tmp = []
-            hist.append(log)
-            while not done and t < max_episode_len:
-                action = agent.act_and_train(obs, reward)
-                obs, reward, done, info = env.step(action)
-                R += reward
-                t += 1
-                log.append(
-                    "acc=%d handle=%d car=%s rew=%f obs=%s" %
-                    (action&1, action&6, info, reward, str(obs))
-                )
-                pos_tmp.append((env.car.get_vec()))
-            if i % 1 == 0:
-                print(
-                    'episode: ', i,
-                    'R:', R,
-                    'obs:', obs,
-                    'R_sum:', sum_reward,
-                    'statistics:', agent.get_statistics()
-                )
-                env.render()
-            agent.stop_episode_and_train(obs, reward, done)
+    train(env, agent)
+    agent.save(save_path)
 
-            rew_log.append(R)
-            sum_reward += R
-            if abs(R) > max_reward:
-                max_reward = abs(R)
-                max_idx = i-1
-                pos_log = pos_tmp
-        print('Finished')
-        agent.save(agent_file)
-    except:
-        print('Error')
-
-    print('reward sum: %f' % sum_reward)
-
-    with open('log.txt', 'w') as f:
-        for row in rew_log:
-            f.write(str(row)+'\n')
-
-    pos_list = []
-    pre_pos = (-1, -1)
-    for pos in pos_log:
-        if same(pos, pre_pos):
-            continue
-        pos_list.append(pos)
-        pre_pos = pos
-    print('size: %d' % len(pos_list))
-
-    import Canvas
-    Canvas.draw(pos_list)
+    play(env, agent)
