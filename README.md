@@ -39,7 +39,9 @@ main_training.pyを実行してください．
 
 chainerRLの強化学習実行コードが書かれている．
 
-ほぼチュートリアル(https://github.com/pfnet/chainerrl/blob/master/examples/quickstart/quickstart.ipynb)に沿っている．
+ほぼチュートリアル
+(https://github.com/pfnet/chainerrl/blob/master/examples/quickstart/quickstart.ipynb)
+に沿っている．
 
 ### model.py
 
